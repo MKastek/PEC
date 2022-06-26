@@ -8,8 +8,11 @@ class PEC:
 
     def __init__(self,PEC_file,wavelength,transitions,Ne_samples_amount, Te_samples_amount):
 
+        self.Ne_samples_amount = Ne_samples_amount
+        self.Te_samples_amount = Te_samples_amount
+
         self.ISEL, self.num_of_Ne_axes, self.num_of_Te_axes, self.num_of_lines_to_read_with_axes, self.sum_of_axes, self.Ne, self.Te = self.read_first_line_of_file(PEC_file)
-        self.empty_matrix = np.empty([self.num_of_Te_axes, self.num_of_Ne_axes],dtype='float')
+        self.matrix_Te_Ne = np.empty([self.num_of_Te_axes, self.num_of_Ne_axes],dtype='float')
         self.num_of_lines_to_read_with_const_Ne = int(np.ceil(self.num_of_Ne_axes / 8))
 
         if self.num_of_lines_to_read_with_const_Ne == 1.0:
@@ -20,16 +23,16 @@ class PEC:
         end = self.num_of_lines_to_read_with_const_Ne*self.num_of_Ne_axes+start
 
         self.xnew, self.ynew = np.logspace(np.log10(self.Ne[0]),np.log10(self.Ne[-1]), num=Ne_samples_amount), np.logspace(np.log10(self.Te[0]),np.log10(self.Te[-1]), num=Te_samples_amount)
-        self.PEC_arr = [self.read_PEC(PEC_file, start+self.move*i, end+self.move*i, self.num_of_lines_to_read_with_const_Ne, self.empty_matrix.copy()) for i in range(self.ISEL)]
+        self.PEC_arr = [self.read_PEC(PEC_file, start+self.move*i, end+self.move*i, self.num_of_lines_to_read_with_const_Ne, self.matrix_Te_Ne.copy()) for i in range(self.ISEL)]
 
         self.transition_df = self.get_transition_df(PEC_file,1)
 
-        indexes = []
+        self.indexes = []
+
         for transition in transitions:
-            indexes.append(self.transition_df.index[(self.transition_df['wavelength'] == wavelength) & (self.transition_df['type'] == transition)].tolist()[0])
-
-        self.plot(indexes)
-
+            self.indexes.append(self.transition_df.index[(self.transition_df['wavelength'] == wavelength) & (self.transition_df['type'] == transition)].tolist()[0])
+        self.PEC_selected_arr = [self.PEC_arr[index] for index in self.indexes]
+        self.plot(self.indexes)
 
     def read_first_line_of_file(self,filepath):
         with open(filepath) as file:
@@ -52,7 +55,7 @@ class PEC:
             Te = [float(item) for item in data[num_of_Ne_axes:]]
         return ISEL, num_of_Ne_axes, num_of_Te_axes, num_of_lines_to_read_with_axes, sum_of_axes, Ne, Te
 
-    def read_PEC(self, filepath, start_line, stop_line, num_of_lines_to_read_with_const_Ne, empty_matrix):
+    def read_PEC(self, filepath, start_line, stop_line, num_of_lines_to_read_with_const_Ne, matrix_Te_Ne):
 
         with open(filepath) as file:
             data = np.array([item.split() for item in file.read().strip().splitlines()[start_line:stop_line]],
@@ -64,10 +67,10 @@ class PEC:
                 line_data = np.array([])
                 for j in range(num_of_lines_to_read_with_const_Ne):
                     line_data = np.concatenate((line_data, data[0][i + j]))
-                empty_matrix[:, iter] = line_data
+                matrix_Te_Ne[:, iter] = line_data
                 iter += 1
 
-        f = interpolate.interp2d(self.Ne, self.Te, empty_matrix.astype(np.float64), kind='linear')
+        f = interpolate.interp2d(self.Ne, self.Te, matrix_Te_Ne.astype(np.float64), kind='linear')
 
         return f(self.xnew, self.ynew)
 
@@ -95,9 +98,18 @@ class PEC:
             ax.set_zlabel('PEC')
             plt.show()
 
+    def analyse_pec(self):
+        interpolated_pec_df = np.zeros([len(self.indexes),self.Ne_samples_amount, self.Te_samples_amount, 3])
+        for transition in range(len(self.indexes)):
+            for i in range(self.Ne_samples_amount):
+                interpolated_pec_df[transition,i,:,:] = np.array([[self.xnew[i]]*self.Ne_samples_amount,self.ynew,self.PEC_selected_arr[transition][:,i]]).T
+        return interpolated_pec_df.shape,{index+1: self.transition_df['type'][index] for index in self.indexes}
 
-if __name__=="__main__":
-    C = PEC(PEC_file='pec_C.dat',wavelength=33.7,transitions=['EXCIT','RECOM'],Ne_samples_amount=50,Te_samples_amount=50)
+
+if __name__ == "__main__":
+    C = PEC(PEC_file='pec_C.dat',wavelength=33.7,transitions=['EXCIT','RECOM'],Ne_samples_amount=230,Te_samples_amount=230)
+    df, list = C.analyse_pec()
+    print(list)
     # out put
     # main
     # FA - Fractional Abundance
